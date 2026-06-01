@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的AI中央厨房</title>
+    <style>
+        /* ---------- 整体布局 ---------- */
+        body {
+            background: #0f0f0f;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            display: flex;
+            height: 100vh;
+            margin: 0;
+            gap: 16px;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+        .panel {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #2a2a2a;
+        }
+        /* 左侧：输入区 */
+        .left {
+            width: 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+        /* 右侧：结果区 */
+        .right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        /* ---------- 组件样式 ---------- */
+        textarea {
+            flex: 1;
+            background: #252525;
+            border: 1px solid #333;
+            color: #e0e0e0;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            resize: none;
+            outline: none;
+        }
+        textarea:focus {
+            border-color: #6c5ce7;
+        }
+        .mode-buttons {
+            display: flex;
+            gap: 8px;
+        }
+        .mode-btn {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #333;
+            background: #252525;
+            color: #aaa;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            text-align: center;
+        }
+        .mode-btn.active {
+            background: #6c5ce7;
+            color: white;
+            border-color: #6c5ce7;
+        }
+        .api-section {
+            display: flex;
+            gap: 8px;
+        }
+        #apiKey {
+            flex: 1;
+            background: #252525;
+            border: 1px solid #333;
+            color: #e0e0e0;
+            padding: 8px 12px;
+            border-radius: 8px;
+            outline: none;
+        }
+        #sendBtn {
+            width: 100%;
+            padding: 12px;
+            background: #6c5ce7;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        #sendBtn:hover {
+            background: #5b4cdb;
+        }
+        #sendBtn:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .result-box {
+            flex: 1;
+            background: #252525;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 16px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+        .status {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ============ 左侧：控制面板 ============ -->
+    <div class="panel left">
+        <div class="mode-buttons">
+            <div class="mode-btn active" data-mode="screenwriter">🎬 编剧</div>
+            <div class="mode-btn" data-mode="director">🎥 导演</div>
+            <div class="mode-btn" data-mode="operator">📱 运营</div>
+        </div>
+
+        <div class="api-section">
+            <input type="password" id="apiKey" placeholder="粘贴你的DeepSeek API Key">
+        </div>
+
+        <textarea id="userInput" placeholder="输入灵感、主题或一句话梗概..."></textarea>
+
+        <button id="sendBtn">⚡ 开始生成</button>
+        <div class="status" id="status">就绪，等待你的指令</div>
+    </div>
+
+    <!-- ============ 右侧：结果展示 ============ -->
+    <div class="panel right">
+        <div class="result-box" id="resultBox">
+            <span style="color: #666;">✨ 这里将显示AI生成的内容...</span>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 核心逻辑 ====================
+
+        // 1. 获取所有需要操控的页面元素
+        const apiKeyInput = document.getElementById('apiKey');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const resultBox = document.getElementById('resultBox');
+        const statusDiv = document.getElementById('status');
+        const modeButtons = document.querySelectorAll('.mode-btn');
+
+        // 当前选中的模式
+        let currentMode = 'screenwriter';
+
+        // 2. 模式切换：点击哪个按钮，哪个就高亮，并更新currentMode
+        modeButtons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                // 移除所有按钮的 active 类
+                modeButtons.forEach(b => b.classList.remove('active'));
+                // 给当前点击的按钮加上 active 类
+                this.classList.add('active');
+                // 更新当前模式
+                currentMode = this.dataset.mode;
+                statusDiv.textContent = `当前模式：${this.textContent.trim()} | 就绪`;
+            });
+        });
+
+        // 3. 系统指令库：为每个模式预设专业的AI角色
+        const systemPrompts = {
+            screenwriter: "你是一位经验丰富的电影编剧，擅长创作抖音短剧和微电影。" +
+                          "请根据用户提供的灵感，生成一个结构完整的剧本。" +
+                          "要求：1. 包含场景、对白、动作描述 2. 节奏紧凑，前3秒有钩子 3. 字数300字以内。" +
+                          "输出格式：先写标题，再写正文。",
+            director: "你是一位资深导演，擅长将文字剧本转化为可拍摄的分镜脚本。" +
+                      "请将用户输入的内容拆解为分镜表。" +
+                      "要求：1. 每个镜头包含景别、画面描述、运镜方式 2. 时间长度标注 3. 适合抖音竖屏拍摄。" +
+                      "输出格式：用表格或序号列出。",
+            operator: "你是一位抖音运营专家，深度理解算法推荐机制和爆款逻辑。" +
+                      "请根据用户提供的视频主题或内容，生成运营方案。" +
+                      "要求：1. 生成3-5个爆款标题 2. 推荐发布时段和理由 3. 给出文案钩子和互动引导。" +
+                      "输出格式：分点说明，重点加粗。"
+        };
+
+        // 4. 发送按钮点击事件：这是整个软件的心脏
+        sendBtn.addEventListener('click', async function() {
+            // 4.1 检查API Key是否填写
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) {
+                alert('请先粘贴你的 DeepSeek API Key');
+                return;
+            }
+
+            // 4.2 检查输入是否为空
+            const userContent = userInput.value.trim();
+            if (!userContent) {
+                alert('请输入你的灵感或内容');
+                return;
+            }
+
+            // 4.3 UI状态更新：按钮禁用，提示正在思考
+            sendBtn.disabled = true;
+            sendBtn.textContent = '⏳ 思考中...';
+            statusDiv.textContent = '正在调用最强模型，消耗Token中...';
+            resultBox.innerHTML = '<span style="color: #6c5ce7;">🔄 生成中，请稍候...</span>';
+
+            // 4.4 拼接给API的消息体
+            const messages = [
+                { role: "system", content: systemPrompts[currentMode] },
+                { role: "user", content: userContent }
+            ];
+
+            // 4.5 调用DeepSeek API（核心网络请求）
+            try {
+                const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}` // 这里用你的Token
+                    },
+                    body: JSON.stringify({
+                        model: 'deepseek-chat', // 使用V3模型（最强是R1，但需更贵Token）
+                        messages: messages,
+                        max_tokens: 2000, // 控制最长输出，避免浪费Token
+                        temperature: 0.8  // 控制创意度（0-2，越高越随机）
+                    })
+                });
+
+                // 4.6 解析返回结果
+                const data = await response.json();
+
+                // 4.7 检查是否有错误
+                if (!response.ok) {
+                    throw new Error(data.error?.message || '请求失败，请检查API Key或网络');
+                }
+
+                // 4.8 提取AI回复并显示
+                const aiContent = data.choices[0].message.content;
+                resultBox.innerHTML = aiContent;
+                statusDiv.textContent = '✅ 生成完成 | 查看右上角结果';
+
+            } catch (error) {
+                // 4.9 错误处理
+                resultBox.innerHTML = `<span style="color: #ff6b6b;">❌ 出错了: ${error.message}</span>`;
+                statusDiv.textContent = '❌ 请求失败';
+                console.error('详细错误:', error); // 按F12看控制台
+            } finally {
+                // 4.10 恢复按钮状态（无论成功失败都执行）
+                sendBtn.disabled = false;
+                sendBtn.textContent = '⚡ 开始生成';
+            }
+        });
+
+        // 5. 按 Ctrl+Enter 快速发送
+        userInput.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                sendBtn.click();
+            }
+        });
+
+        // 6. 启动提示
+        console.log('🎬 中央厨房已启动！选择模式，填入API Key，开始创作吧。');
+    </script>
+</body>
+</html>
